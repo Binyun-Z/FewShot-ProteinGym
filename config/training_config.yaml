@@ -1,0 +1,13 @@
+model: ESM-1v
+gpu_number: 2
+shot: 48
+batch_size: 6
+max_epochs: 100
+ini_lr: 5e-4
+min_lr: 1e-4
+endure_time: 5
+lambda_reg: 0.1
+lora_r: 8
+lora_alpha: 8
+lora_dropout: 0.1
+
