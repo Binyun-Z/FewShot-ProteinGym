@@ -12,7 +12,7 @@ import accelerate
 from accelerate import Accelerator
 from datetime import datetime
 from data_utils import Mutation_Set,split_data,split_sample_data
-from stat_utils import spearman, compute_score, BT_loss, KLloss
+from stat_utils import spearman, compute_score, BT_loss, KLloss,ListMLE_loss
 import gc
 import warnings
 import time
@@ -36,7 +36,7 @@ def train(model, model_reg, trainloader, optimizer, tokenizer, lambda_reg, pbar)
         score, logits = compute_score(model, seq, mask, wt, pos, tokenizer)
         score = score.cuda()
 
-        l_BT = BT_loss(score, golden_score)
+        l_BT = ListMLE_loss(score, golden_score)
 
         out_reg = model_reg(wt, wt_mask)
         logits_reg = out_reg.logits
@@ -118,7 +118,7 @@ def main():
     accelerator = Accelerator()
 
 
-    sample_size_list = [20,40,60,80,100]
+    sample_size_list = [100]
     test_result = []
     for sample_size in sample_size_list:
 
@@ -169,7 +169,7 @@ def main():
 
         with accelerator.main_process_first():
             file_path = os.path.join(data_path,dataset)
-            train_csv,val_csv,test_csv = split_sample_data(file_path,sample_size=100,fold_type='fold_modulo_5')
+            train_csv,val_csv,test_csv = split_sample_data(file_path,sample_size,fold_type='fold_modulo_5')
 
         #creat dataset and dataloader
         trainset = Mutation_Set(data=train_csv, tokenizer=tokenizer)
@@ -189,15 +189,15 @@ def main():
 
         best_sr = -np.inf
         best_epoch = 0
-        tolerance = 0.005  # 收敛容忍度
+        tolerance = 0.008  # 收敛容忍度
         prev_loss = float('inf')  # 上一个损失初始化为无穷大
         endure = 0  # 记录耐心值
 
-        log_dir = os.path.join('scripts/runs', f"{dataset}/",f"{args.fold_spilt_type}_model_seed_{args.model_seed}_time_{datetime.now().strftime("%Y-%m-%d %H-%M")}_sample_size_{sample_size}")
+        log_dir = os.path.join('scripts/runs_ListMLE_loss', f"{dataset}/",f"{args.fold_spilt_type}_model_seed_{args.model_seed}_time_{datetime.now().strftime("%Y-%m-%d %H-%M")}_sample_size_{sample_size}")
         writer = SummaryWriter(log_dir)
         accelerator.print(f'日志文件的目录为：-----------------------> {log_dir}')
 
-        checkpoint_dir = os.path.join('checkpoint', f'{dataset}',f'{args.fold_spilt_type}',
+        checkpoint_dir = os.path.join('checkpoint_ListMLE_loss', f'{dataset}',f'{args.fold_spilt_type}',
                                         f'model_seed_{args.model_seed}_{datetime.now().strftime("%Y-%m-%d %H-%M")}_sample_size_{sample_size}')
         if not os.path.isdir(checkpoint_dir):
             if accelerator.is_main_process:
@@ -217,6 +217,8 @@ def main():
 
             if abs(prev_loss - loss) < tolerance:
                 endure += 1
+            elif best_sr > sr:
+                endure += 1        
             else:
                 endure = 0
                 
@@ -264,16 +266,16 @@ def main():
         model = PeftModel.from_pretrained(basemodel, checkpoint_dir)
         model = accelerator.prepare(model)
         sr, score, pid = evaluate(model, testloader, tokenizer, accelerator, istest=True)
-        # pred_csv = pd.DataFrame({f'{args.model_seed}': score, 'PID': pid})
-        # if accelerator.is_main_process:
-        #     if not os.path.isdir(f'predicted/{dataset}'):
-        #         os.makedirs(f'predicted/{dataset}')
-        #     if os.path.exists(f'predicted/{dataset}/pred.csv'):
-        #         pred = pd.read_csv(f'predicted/{dataset}/pred.csv', index_col=0)
-        #         pred = pd.merge(pred, pred_csv, on='PID')
-        #     else:
-        #         pred = pred_csv
-        #     pred.to_csv(f'predicted/{dataset}/pred.csv')
+        pred_csv = pd.DataFrame({f'{args.model_seed}': score, 'PID': pid})
+        if accelerator.is_main_process:
+            if not os.path.isdir(f'predicted_ListMLE_loss/{dataset}_sample_size_{sample_size}_{args.fold_spilt_type}'):
+                os.makedirs(f'predicted_ListMLE_loss/{dataset}_sample_size_{sample_size}_{args.fold_spilt_type}')
+            if os.path.exists(f'predicted_ListMLE_loss/{dataset}_sample_size_{sample_size}_{args.fold_spilt_type}/pred.csv'):
+                pred = pd.read_csv(f'predicted_ListMLE_loss/{dataset}_sample_size_{sample_size}_{args.fold_spilt_type}/pred.csv', index_col=0)
+                pred = pd.merge(pred, pred_csv, on='PID')
+            else:
+                pred = pred_csv
+            pred.to_csv(f'predicted_ListMLE_loss/{dataset}_sample_size_{sample_size}_{args.fold_spilt_type}/pred.csv')
         accelerator.print(f'=============the test spearman correlation for early stop: {sr}==================')
         test_result.append(sr)
 
@@ -285,9 +287,9 @@ def main():
 
     # 创建 DataFrame
     result_df = pd.DataFrame(dic)
-    if not os.path.exists('results/'):
-        os.makedirs('results/')
-    result_df.to_csv(os.path.join('results/',f'{dataset.split('.')[0]}_{args.fold_spilt_type}_model_seed_{args.model_seed}_test_result.csv'),index=False)
+    if not os.path.exists('results_ListMLE_loss_all/'):
+        os.makedirs('results_ListMLE_loss_all/')
+    result_df.to_csv(os.path.join('results_ListMLE_loss_all/',f'{dataset.split('.')[0]}_{args.fold_spilt_type}_model_seed_{args.model_seed}_test_result.csv'),index=False)
 
 
 if __name__ == "__main__":

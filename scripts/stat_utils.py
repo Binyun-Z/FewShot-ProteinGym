@@ -67,6 +67,17 @@ def BT_loss(scores, golden_score):
                 loss += torch.log(1+torch.exp(scores[i]-scores[j]))
     return loss
 
+def ListMLE_loss(predicts, targets):
+    ''' ListMLE loss '''
+    if predicts.dim() == 1:
+        predicts = predicts.unsqueeze(0)
+    if targets.dim() == 1:
+        targets = targets.unsqueeze(0)
+    indices = targets.sort(descending=True, dim=-1).indices
+    predicts = torch.gather(predicts, dim=1, index=indices)
+    cumsums = predicts.exp().flip(dims=[1]).cumsum(dim=1).flip(dims=[1])
+    loss = torch.log(cumsums + 1e-10) - predicts
+    return loss.sum(dim=1).mean()
 
 def KLloss(logits, logits_reg, seq, att_mask):
 

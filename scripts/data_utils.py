@@ -136,6 +136,66 @@ def get_wt(seq, mut):
         seq[p - 1] = chars[i]  # 替换为原始字符
     
     return ''.join(seq)
+def get_data(data_path):
+    #ESM能处理的序列的最大长度1024，除去开始的字符和终止的字符最大氨基酸序列的长度为1022，
+    # 但是某些序列的突变位点超过1022，因此需要处理
+
+    df = pd.read_csv(data_path)
+    df['mut_pos'] = df.apply(get_pos,axis = 1)
+
+    positions = list(df['mut_pos'])
+    # print(positions)
+    max_pos, min_pos = max(positions), min(positions)
+    gap = max_pos - min_pos + 1
+    wt_seq = get_wt(df['mutated_sequence'][0],df['mutant'][0])
+    L= len(wt_seq)
+    # print(df.head(5))
+    # print(f'pos-------------{min_pos,max_pos}')
+
+
+    max_len = 1022
+    if max_pos < max_len:
+        wt_seq = wt_seq[:max_len]
+        left, right = 0,max_len
+
+
+    elif gap <= max_len:
+        window_l = max(min_pos - (max_len - gap) // 2, 0)
+        window_r = min(max_pos + (max_len - gap) // 2, L - 1)
+        seq_lr = wt_seq[window_l: window_l + max_len]
+        seq_rl = wt_seq[window_r - max_len + 1: window_r + 1]
+        
+        if len(seq_lr) > len(seq_rl):
+            wt_seq = seq_lr
+            left, right = window_l, window_l + max_len
+        else:
+            wt_seq = seq_rl
+            left, right = window_r - max_len + 1, window_r + 1
+    else:
+        n = 0
+        left, right = 0, max_len
+        for w in range(max_len,L,10):
+            window_n = sum((df['mut_pos']>=w-max_len) & (df['mut_pos']<w))
+            # print(f"Window: {w}, Count: {window_n}")
+            # print(window_n)
+            if window_n > n:
+                left= w-max_len
+                n = window_n
+        
+        right  = left+max_len
+        wt_seq = wt_seq[left:right]
+
+    # print(left,right)
+
+    df = df[(df['mut_pos']>=left) & (df['mut_pos']<right)]
+    df['mutated_sequence'] =df['mutated_sequence'].apply(lambda seq: seq[left:right])
+    df['mut_pos'] = df['mut_pos']-left
+    df['target_seq'] = wt_seq
+    df['PID'] = df.index
+    # print(df.head(5))
+
+    return df
+
 def split_data(dataset,data_path):
     if isinstance(dataset, list):
         for csv_file in dataset:
@@ -177,31 +237,30 @@ def split_data(dataset,data_path):
         print(f'----------------->{dataset}{"-" * (60 - len(dataset))} 数据集已经划分！')
 
 
-def split_sample_data(df_path, sample_size,fold_type,val_frac = 0.2):
+def split_sample_data(df_path, sample_size,fold_type,val_frac = 0.2,shuffle = True):
     # 获取符合模式的所有 CSV 文件
     #fold_types : 'fold_random_5','fold_modulo_5','fold_contiguous_5'
     # sample_size = 20,40,60,80,100
     
-    df = pd.read_csv(df_path)
-    df['mut_pos'] = df.apply(get_pos,axis = 1)
-    wt_seq = get_wt(df['mutated_sequence'][0],df['mutant'][0])
-    df['target_seq'] = wt_seq
-    df['PID'] = df.index
-    df = df[df['mut_pos']<1023]
+    df = get_data(df_path)
+    if shuffle:
+        df = df.sample(frac=1)
 
     if len(df)/5>sample_size:
 
-        data = df[df[fold_type]==0]
-        train_data = data.sample(n=sample_size,random_state=1)  # random_state 用于可复现的结果
+        # data = df[df[fold_type]==0]
+        # train_data = data.sample(n=sample_size)
         # 从 DataFrame 中随机采样
+        train_data  = df[:sample_size]
     elif len(df)/5<sample_size<len(df):
-        train_data = df.sample(n=sample_size,random_state=1)  # random_state 用于可复现的结果
+        # train_data = df.sample(n=sample_size) 
+        train_data  = df[:sample_size]
 
     else:
         print('------数据集中的样本数小于采样数,默认使用当前数据集中一半的样本用于训练------!')
-        train_data = df.sample(frac = 0.5,random_state = 1)
+        train_data = df.sample(frac = 0.5)
     test_data=df[~df.index.isin(train_data.index)]
-    val_data = train_data.sample(frac=val_frac,random_state=1)
+    val_data = train_data.sample(frac=val_frac)
     train_data = train_data[~train_data.index.isin(val_data.index)]
 
     # 合并所有样本

@@ -5,7 +5,7 @@ batch_size: 6
 max_epochs: 100
 ini_lr: 5e-4
 min_lr: 1e-4
-endure_time: 5
+endure_time: 10
 lambda_reg: 0.1
 lora_r: 8
 lora_alpha: 8
